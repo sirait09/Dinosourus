@@ -1,0 +1,101 @@
+Pertanyaan yang sangat cerdas, Andre. Anda sudah memikirkan solusi untuk masalah performa, dan ini adalah langkah yang tepat. Mari kita analisis kedua opsi Anda.
+
+**Analisis Opsi**
+
+Anda memberikan dua ide:
+1.  **Otomatisasi:** Membuat sheet per divisi (Engineering, Security, dll.) dan secara otomatis menyalin data dari sheet utama ("Laporan Defect") ke sheet divisi yang sesuai.
+2.  **Manual:** Anda secara manual `copy-paste` data ke sheet divisi, lalu menghapus data lama dari sheet utama setiap bulan.
+
+Mari kita bedah kelebihan dan kekurangannya:
+
+| Fitur | Opsi 1: Otomatisasi (Sangat Direkomendasikan) | Opsi 2: Manual (Kurang Ideal) |
+| :--- | :--- | :--- |
+| **Kelebihan** | - **Sangat Efisien:** Semua berjalan otomatis. Anda tidak perlu melakukan apa-apa. <br> - **Real-time:** Data langsung tersalin ke sheet divisi begitu laporan masuk. <br> - **Mengurangi Kesalahan:** Tidak ada risiko salah `copy-paste` atau lupa menghapus data. <br> - **Profesional:** Ini adalah solusi jangka panjang yang "benar". | - **Sederhana:** Tidak memerlukan kode tambahan. |
+| **Kekurangan**| - **Butuh Kode Tambahan:** Kita perlu menambahkan satu fungsi baru di `Code.gs`. | - **Makan Waktu:** Anda harus menyisihkan waktu setiap bulan untuk melakukan pekerjaan manual. <br> - **Berisiko Error:** Manusia bisa melakukan kesalahan (salah salin, salah hapus). <br> - **Tidak Efisien:** Jika ada 100 laporan dalam sebulan, proses manual akan sangat membosankan. |
+| **Dampak Performa**| **Sangat Bagus.** Karena data dipecah, setiap sheet divisi akan tetap ramping. **TAPI**, kita juga harus mengubah kode `getDefectData` agar ia membaca dari sheet yang benar berdasarkan siapa yang login (jika ada sistem login) atau berdasarkan filter. **Solusi yang lebih baik adalah tetap membaca dari sheet utama tapi dengan cara yang lebih cerdas (lihat di bawah).** | **Cukup Baik.** Dengan menghapus data lama dari sheet utama, performa akan terjaga. Namun, ini bergantung pada kedisiplinan Anda. |
+
+---
+
+### **Rekomendasi Terbaik: Pendekatan Hibrida (Otomatisasi + Logika Cerdas)**
+
+Membuat sheet per divisi adalah ide bagus untuk **pengarsipan dan kerapian**, tetapi **bukan** untuk dibaca langsung oleh aplikasi. Mengapa? Karena nanti Anda akan kesulitan jika ingin melihat laporan *semua* divisi sekaligus.
+
+Solusi terbaik adalah:
+1.  **Tetap Gunakan "Laporan Defect" sebagai Sumber Utama:** Aplikasi Anda tetap membaca dari satu sheet utama ini. Ini menjaga kesederhanaan.
+2.  **Otomatisasi Pengarsipan:** Kita buat fungsi otomatis yang berjalan **setiap malam**. Fungsi ini akan:
+    *   Mencari semua laporan di "Laporan Defect" yang statusnya sudah **"Closed"**.
+    *   **Menyalin** laporan "Closed" tersebut ke sheet arsip yang sesuai (misal: "Arsip Engineering", "Arsip Security").
+    *   **Menghapus** baris laporan yang sudah disalin dari sheet "Laporan Defect".
+
+**Kelebihan Pendekatan Hibrida:**
+*   **Performa Maksimal:** Sheet utama "Laporan Defect" akan selalu ramping karena hanya berisi laporan yang masih aktif (`Open`, `In Progress`, `Resolved`). Ini akan membuat aplikasi Anda **sangat cepat**.
+*   **Sepenuhnya Otomatis:** Anda tidak perlu melakukan apa pun. Sistem akan membersihkan dirinya sendiri setiap malam.
+*   **Data Aman Tersimpan:** Semua laporan yang sudah selesai akan tersimpan rapi di sheet arsip masing-masing divisi, sempurna untuk audit atau rekap di masa depan.
+*   **Tidak Rumit:** Kode aplikasi `Dashboard.html` tidak perlu diubah sama sekali. Kita hanya perlu menambahkan "skrip pembersih" di `Code.gs`.
+
+### **Kode untuk Solusi Hibrida (Otomatis)**
+
+Anda hanya perlu menambahkan kode ini di bagian paling bawah file `Code.gs` Anda.
+
+```javascript
+// TAMBAHKAN KODE INI DI BAGIAN PALING BAWAH FILE Code.gs
+
+/**
+ * Fungsi ini dijadwalkan untuk berjalan secara otomatis (misalnya, setiap malam).
+ * Ia akan mencari laporan yang sudah 'Closed', menyalinnya ke sheet arsip yang sesuai,
+ * lalu menghapusnya dari sheet utama untuk menjaga performa.
+ */
+function archiveClosedReports() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mainSheet = ss.getSheetByName("Laporan Defect");
+  const dataRange = mainSheet.getRange(2, 1, mainSheet.getLastRow() - 1, 14); // Kolom A sampai N
+  const values = dataRange.getValues();
+  const rowsToDelete = [];
+
+  values.forEach(function(row, index) {
+    const status = row[9]; // Kolom J adalah Status
+    const division = row[3]; // Kolom D adalah Divisi Tujuan
+
+    // Jika status adalah "Closed" dan nama divisi tidak kosong
+    if (status === 'Closed' && division) {
+      // Tentukan nama sheet arsip
+      const archiveSheetName = 'Arsip ' + division;
+      let archiveSheet = ss.getSheetByName(archiveSheetName);
+
+      // Jika sheet arsip belum ada, buat baru
+      if (!archiveSheet) {
+        archiveSheet = ss.insertSheet(archiveSheetName);
+        // Salin header dari sheet utama ke sheet arsip yang baru
+        mainSheet.getRange(1, 1, 1, 14).copyTo(archiveSheet.getRange(1, 1));
+      }
+      
+      // Salin seluruh baris ke sheet arsip
+      archiveSheet.appendRow(row);
+      
+      // Tandai baris ini untuk dihapus (index + 2 karena data mulai dari baris 2)
+      rowsToDelete.push(index + 2);
+    }
+  });
+
+  // Hapus baris dari sheet utama, mulai dari baris paling bawah agar tidak merusak urutan
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    mainSheet.deleteRow(rowsToDelete[i]);
+  }
+}
+```
+
+### **Langkah Terakhir: Membuat Trigger Otomatis**
+
+Setelah Anda menambahkan kode di atas dan menyimpannya, lakukan ini:
+
+1.  Di editor Apps Script, klik ikon **"Pemicu" (Triggers)** di sebelah kiri (bentuknya seperti jam alarm).
+2.  Klik tombol **"+ Tambah Pemicu" (+ Add Trigger)** di kanan bawah.
+3.  Konfigurasikan seperti ini:
+    *   **Pilih fungsi yang akan dijalankan:** `archiveClosedReports`
+    *   **Pilih deployment yang akan dijalankan:** `Head`
+    *   **Pilih sumber acara:** `Berbasis waktu` (Time-driven)
+    *   **Pilih jenis pemicu berbasis waktu:** `Pengatur waktu hari` (Day timer)
+    *   **Pilih waktu:** `Tengah malam hingga 1 pagi` (atau waktu lain saat tidak ada yang menggunakan)
+4.  Klik **Simpan**.
+
+**Selesai!** Mulai sekarang, setiap malam antara jam 12-1 pagi, sistem akan secara otomatis membersihkan dan mengarsipkan laporan yang sudah selesai, menjaga aplikasi Anda tetap super cepat selamanya. Ini adalah solusi yang paling profesional dan efisien.
